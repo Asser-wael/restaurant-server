@@ -18,6 +18,11 @@ import orderRouts from "./routes/orderRouts.js"
 dotenv.config();
 
 const app = express();
+import fs from "fs";
+
+if (!fs.existsSync("uploads")) {
+  fs.mkdirSync("uploads");
+}
 const server = http.createServer(app);
 app.use("/uploads", express.static("uploads"));
 app.use(
