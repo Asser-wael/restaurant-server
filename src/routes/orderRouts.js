@@ -18,7 +18,7 @@ webpush.setVapidDetails(
 
 let adminSubscriptions = [];
 
-router.post("/save-subscription", (req, res) => {
+router.post("/save-admin-subscription", (req, res) => {
     const sub = req.body;
     const exists = adminSubscriptions.find(
         (s) => s.endpoint === sub.endpoint
@@ -28,6 +28,7 @@ router.post("/save-subscription", (req, res) => {
     }
     res.json({ ok: true });
 });
+
 router.post("/delete-subscription", (req, res) => {
     const { endpoint } = req.body;
     adminSubscriptions = adminSubscriptions.filter(
@@ -35,6 +36,38 @@ router.post("/delete-subscription", (req, res) => {
     );
     res.json({ ok: true });
 });
+
+let customerSubscriptions = [];
+
+router.post("/save-customer-subscription", (req, res) => {
+    const { tableNumber, subscription } = req.body;
+
+    const index = customerSubscriptions.findIndex(
+        (s) => s.subscription.endpoint === subscription.endpoint
+    );
+
+    if (index !== -1) {
+        customerSubscriptions[index].tableNumber = tableNumber;
+    } else {
+        customerSubscriptions.push({
+            tableNumber,
+            subscription,
+        });
+    }
+
+    res.json({ ok: true });
+});
+
+router.post("/delete-customer-subscription", (req, res) => {
+    const { endpoint } = req.body;
+
+    customerSubscriptions = customerSubscriptions.filter(
+        (s) => s.subscription.endpoint !== endpoint
+    );
+
+    res.json({ ok: true });
+});
+
 
 /////////////////////////////////////////////////////////////
 router.get(
@@ -92,7 +125,6 @@ router.post("/checkOut", upload.single("image"), async (req, res) => {
         const io = getIO();
         io.to("admin").emit("newOrder", order);
 
-        // ✅ بعت Push Notification لكل الـ admins
         const payload = JSON.stringify({
             title: "🛒 New Order",
             body: `Table ${order.tableNumber}`,
@@ -100,7 +132,6 @@ router.post("/checkOut", upload.single("image"), async (req, res) => {
 
         adminSubscriptions.forEach((sub) => {
             webpush.sendNotification(sub, payload).catch((err) => {
-                // لو الـ subscription انتهت صلاحيتها شيلها
                 if (err.statusCode === 410) {
                     adminSubscriptions = adminSubscriptions.filter(
                         (s) => s.endpoint !== sub.endpoint
@@ -135,15 +166,43 @@ router.put("/updateOrderStatus", async (req, res) => {
             orderId: order._id,
             status: order.status,
         });
-
+        const customer = customerSubscriptions.find(
+            s => s.tableNumber == order.tableNumber
+        );
+        if (customer) {
+            const payload = JSON.stringify({
+                title: "🍽️ Order Update",
+                body: `Your order is now ${order.status}`,
+            });
+            webpush.sendNotification(customer.subscription, payload)
+                .catch((err) => {
+                    console.log(err);
+                });
+        }
+        if (
+            order.status === "completed" ||
+            order.status === "cancelled"
+        ) {
+            customerSubscriptions =
+                customerSubscriptions.filter(
+                    s => s.tableNumber != order.tableNumber
+                );
+        }
         res.json({
             message: "Order just updated",
             type: "success",
             order,
         });
     } catch (error) {
-        console.log(error);
-        res.status(500).json({ message: "order error" });
+        if (err.statusCode === 410) {
+            customerSubscriptions =
+                customerSubscriptions.filter(
+                    s =>
+                        s.subscription.endpoint !==
+                        customer.subscription.endpoint
+                );
+        }
+
     }
 });
 
