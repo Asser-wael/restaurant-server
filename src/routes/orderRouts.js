@@ -9,7 +9,9 @@ import webpush from "web-push";
 dotenv.config();
 
 const router = express.Router();
+
 ////////////////////////////////////////////////////////
+
 webpush.setVapidDetails(
     "mailto:admin@restaurant.com",
     process.env.VAPID_PUBLIC_KEY,
@@ -17,12 +19,23 @@ webpush.setVapidDetails(
 );
 
 let adminSubscriptions = [];
+let customerSubscriptions = [];
+
+const sendPushSafely = (subscription, payload, onExpired) => {
+    webpush.sendNotification(subscription, payload).catch((err) => {
+        if (err.statusCode === 410) {
+            onExpired();
+        } else {
+            console.error("Push error:", err);
+        }
+    });
+};
+
+////////////////////////////////////////////////////////
 
 router.post("/save-admin-subscription", (req, res) => {
     const sub = req.body;
-    const exists = adminSubscriptions.find(
-        (s) => s.endpoint === sub.endpoint
-    );
+    const exists = adminSubscriptions.find((s) => s.endpoint === sub.endpoint);
     if (!exists) {
         adminSubscriptions.push(sub);
     }
@@ -32,12 +45,10 @@ router.post("/save-admin-subscription", (req, res) => {
 router.post("/delete-subscription", (req, res) => {
     const { endpoint } = req.body;
     adminSubscriptions = adminSubscriptions.filter(
-        sub => sub.endpoint !== endpoint
+        (sub) => sub.endpoint !== endpoint
     );
     res.json({ ok: true });
 });
-
-let customerSubscriptions = [];
 
 router.post("/save-customer-subscription", (req, res) => {
     const { tableNumber, subscription } = req.body;
@@ -49,10 +60,7 @@ router.post("/save-customer-subscription", (req, res) => {
     if (index !== -1) {
         customerSubscriptions[index].tableNumber = tableNumber;
     } else {
-        customerSubscriptions.push({
-            tableNumber,
-            subscription,
-        });
+        customerSubscriptions.push({ tableNumber, subscription });
     }
 
     res.json({ ok: true });
@@ -60,16 +68,14 @@ router.post("/save-customer-subscription", (req, res) => {
 
 router.post("/delete-customer-subscription", (req, res) => {
     const { endpoint } = req.body;
-
     customerSubscriptions = customerSubscriptions.filter(
         (s) => s.subscription.endpoint !== endpoint
     );
-
     res.json({ ok: true });
 });
 
+////////////////////////////////////////////////////////
 
-/////////////////////////////////////////////////////////////
 router.get(
     "/admin/orders",
     authMiddleware,
@@ -130,13 +136,12 @@ router.post("/checkOut", upload.single("image"), async (req, res) => {
             body: `Table ${order.tableNumber}`,
         });
 
+        // ✅ [FIX 2] استخدام الدالة المساعدة بدل تكرار منطق حذف الـ subscription
         adminSubscriptions.forEach((sub) => {
-            webpush.sendNotification(sub, payload).catch((err) => {
-                if (err.statusCode === 410) {
-                    adminSubscriptions = adminSubscriptions.filter(
-                        (s) => s.endpoint !== sub.endpoint
-                    );
-                }
+            sendPushSafely(sub, payload, () => {
+                adminSubscriptions = adminSubscriptions.filter(
+                    (s) => s.endpoint !== sub.endpoint
+                );
             });
         });
 
@@ -146,12 +151,15 @@ router.post("/checkOut", upload.single("image"), async (req, res) => {
             order,
         });
     } catch (error) {
-        console.log(error);
+        console.error(error);
         res.status(500).json({ message: "order error" });
     }
 });
 
 router.put("/updateOrderStatus", async (req, res) => {
+    // ✅ [FIX 3] تعريف customer برّا الـ try عشان يكون متاح في الـ catch
+    let customer = null;
+
     try {
         const { id, status } = req.body;
 
@@ -161,48 +169,57 @@ router.put("/updateOrderStatus", async (req, res) => {
             { returnDocument: "after" }
         );
 
+        if (!order) {
+            return res.status(404).json({ message: "Order not found" });
+        }
+
         const io = getIO();
         io.to(`table-${order.tableNumber}`).emit("order-status-updated", {
             orderId: order._id,
             status: order.status,
         });
-        const customer = customerSubscriptions.find(
-            s => s.tableNumber == order.tableNumber
+
+        customer = customerSubscriptions.find(
+            (s) => s.tableNumber == order.tableNumber
         );
+
         if (customer) {
             const payload = JSON.stringify({
                 title: "🍽️ Order Update",
                 body: `Your order is now ${order.status}`,
             });
-            webpush.sendNotification(customer.subscription, payload)
-                .catch((err) => {
-                    console.log(err);
-                });
-        }
-        if (
-            order.status === "completed" ||
-            order.status === "cancelled"
-        ) {
-            customerSubscriptions =
-                customerSubscriptions.filter(
-                    s => s.tableNumber != order.tableNumber
+
+            // ✅ [FIX 2] استخدام الدالة المساعدة هنا برضو
+            sendPushSafely(customer.subscription, payload, () => {
+                customerSubscriptions = customerSubscriptions.filter(
+                    (s) =>
+                        s.subscription.endpoint !== customer.subscription.endpoint
                 );
+            });
         }
+
+        if (order.status === "completed" || order.status === "cancelled") {
+            customerSubscriptions = customerSubscriptions.filter(
+                (s) => s.tableNumber != order.tableNumber
+            );
+        }
+
         res.json({
             message: "Order just updated",
             type: "success",
             order,
         });
     } catch (error) {
-        if (err.statusCode === 410) {
-            customerSubscriptions =
-                customerSubscriptions.filter(
-                    s =>
-                        s.subscription.endpoint !==
-                        customer.subscription.endpoint
-                );
+        console.error(error);
+
+        if (error.statusCode === 410 && customer) {
+            customerSubscriptions = customerSubscriptions.filter(
+                (s) =>
+                    s.subscription.endpoint !== customer.subscription.endpoint
+            );
         }
 
+        res.status(500).json({ message: "update error" });
     }
 });
 
