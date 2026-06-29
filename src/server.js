@@ -14,6 +14,7 @@ import usersRouts from "./routes/usersRouts.js"
 import customuseRouts from "./routes/customuseRouts.js"
 import menuRouts from "./routes/menuRouts.js"
 import orderRouts from "./routes/orderRouts.js"
+import  adminDashboard  from "./routes/dashboardRouts.js";
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ app.use(usersRouts)
 app.use(menuRouts)
 app.use(customuseRouts)
 app.use(orderRouts)
+app.use(adminDashboard)
 
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
