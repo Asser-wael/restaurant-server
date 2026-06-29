@@ -67,6 +67,8 @@ router.post("/save-customer-subscription", (req, res) => {
 });
 
 router.post("/delete-customer-subscription", (req, res) => {
+    console.log("ddddddddddddddddddddddddddddddddddddddddddd");
+    
   const { endpoint } = req.body;
   customerSubscriptions = customerSubscriptions.filter(
     (s) => s.subscription.endpoint !== endpoint
