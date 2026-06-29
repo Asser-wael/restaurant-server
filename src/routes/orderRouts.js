@@ -157,7 +157,7 @@ router.post("/checkOut", upload.single("image"), async (req, res) => {
 });
 
 router.put("/updateOrderStatus", async (req, res) => {
-    // ✅ [FIX 3] تعريف customer برّا الـ try عشان يكون متاح في الـ catch
+    
     let customer = null;
 
     try {
@@ -174,6 +174,7 @@ router.put("/updateOrderStatus", async (req, res) => {
         }
 
         const io = getIO();
+        console.log("EMIT:", order.status, order.tableNumber);
         io.to(`table-${order.tableNumber}`).emit("order-status-updated", {
             orderId: order._id,
             status: order.status,
@@ -189,7 +190,7 @@ router.put("/updateOrderStatus", async (req, res) => {
                 body: `Your order is now ${order.status}`,
             });
 
-            // ✅ [FIX 2] استخدام الدالة المساعدة هنا برضو
+            
             sendPushSafely(customer.subscription, payload, () => {
                 customerSubscriptions = customerSubscriptions.filter(
                     (s) =>
