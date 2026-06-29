@@ -1,7 +1,7 @@
 import express from "express";
 import OrderModel from "../models/Order.js";
 import UserModel from "../models/User.js";
-import ProductModel from "../models/Product.js";
+import MealModel from "../models/Meal.js";
 import { authMiddleware, cashierMiddleware } from "../middlewares/auth.js";
 
 const router = express.Router();
@@ -16,7 +16,7 @@ async function getStats({ start, end }) {
   const [orders, users, products, pendingOrders] = await Promise.all([
     OrderModel.find({ createdAt: { $gte: start, $lt: end } }),
     UserModel.countDocuments({ createdAt: { $gte: start, $lt: end } }),
-    ProductModel.countDocuments(),
+    MealModel.countDocuments(),
     OrderModel.countDocuments({ status: "pending" }),
   ]);
 
